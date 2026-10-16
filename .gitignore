@@ -1,12 +1,24 @@
-# Mac OS junk
-.DS_Store
-
-# Python / IDE
+# Python
 .venv/
 __pycache__/
 *.pyc
-.idea/
-
-# Secrets & Environment variables
 .env
 .env.*
+
+# Databases (contains key hashes + runtime state)
+*.db
+*.sqlite3
+
+# Node / React
+node_modules/
+dist/
+frontend/dist/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+
+# Logs & Inspector exports
+*.log
+exports/
