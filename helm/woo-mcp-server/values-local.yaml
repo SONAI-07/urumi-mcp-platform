@@ -1,0 +1,14 @@
+replicaCount: 1
+
+image:
+  repository: woo-mcp-server
+  tag: latest
+  pullPolicy: Never  # Tells K8s to use the local image we loaded into kind
+
+# This is the INTERNAL cluster URL for WordPress! No Ingress needed.
+wooUrl: "http://store.127.0.0.1.nip.io"
+wooHostAliasIP: "10.96.227.179"
+
+resources:
+  requests: { memory: "128Mi", cpu: "100m" }
+  limits:   { memory: "256Mi", cpu: "250m" }

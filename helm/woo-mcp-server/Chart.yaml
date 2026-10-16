@@ -1,0 +1,4 @@
+apiVersion: v2
+name: woo-mcp-server
+description: A Helm chart for the WooCommerce MCP Server
+version: 0.1.0
