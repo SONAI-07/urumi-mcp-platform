@@ -1,38 +1,43 @@
 import asyncio
+import contextlib
 import json
 import time
 import logging
-import uvicorn
-from mcp.server import Server
-import mcp.types as types
-from mcp.server.streamable_http import StreamableHTTPServer
 
-from database import SessionLocal
-from models import MCPServer, AuditLog
+import uvicorn
+from starlette.applications import Starlette
+from starlette.routing import Mount
+
+from mcp.server import Server
+from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+import mcp.types as types
 from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 
+from database import SessionLocal
+from models import MCPServer, AuditLog
+
 logging.basicConfig(level=logging.INFO)
 
-# We use the low-level Server to dynamically control the list_tools and call_tool handlers
+# Low-level server: we need raw control over list_tools/call_tool
+# because the gateway's tool list is DYNAMIC (comes from the DB).
 app = Server("Urumi-Gateway")
 
 
-def log_audit(username: str, server_name: str, tool_name: str, duration_ms: int, success: bool, error_msg: str = None):
+def log_audit(username, server_name, tool_name, duration_ms, success, error_msg=None):
     db = SessionLocal()
     try:
-        log = AuditLog(
+        db.add(AuditLog(
             username=username, server_name=server_name, tool_name=tool_name,
             duration_ms=duration_ms, success=success, error_message=error_msg
-        )
-        db.add(log)
+        ))
         db.commit()
     finally:
         db.close()
 
 
 async def get_upstream_tools():
-    """Dynamically fetches tools from all enabled upstream servers."""
+    """Dynamically fetch tools from every ENABLED upstream server."""
     db = SessionLocal()
     servers = db.query(MCPServer).filter(MCPServer.is_enabled == True).all()
     db.close()
@@ -48,18 +53,15 @@ async def get_upstream_tools():
                 async with ClientSession(read, write) as session:
                     await session.initialize()
                     upstream_tools = await session.list_tools()
-
                     for tool in upstream_tools.tools:
-                        # Prefix tool name to prevent collisions: "server__tool"
-                        gateway_name = f"{server.name}__{tool.name}"
                         all_tools.append(types.Tool(
-                            name=gateway_name,
+                            name=f"{server.name}__{tool.name}",   # collision-proof prefix
                             description=f"[{server.name}] {tool.description or tool.name}",
-                            inputSchema=tool.inputSchema
+                            inputSchema=tool.inputSchema,
                         ))
         except Exception as e:
+            # A dead upstream must NOT break the listing of the others
             logging.error(f"Failed to fetch tools from {server.name}: {e}")
-
     return all_tools
 
 
@@ -70,64 +72,62 @@ async def handle_list_tools() -> list[types.Tool]:
 
 @app.call_tool()
 async def handle_call_tool(name: str, arguments: dict | None) -> list[types.TextContent]:
-    if arguments is None:
-        arguments = {}
+    arguments = arguments or {}
 
-    # Parse the prefixed name: "server_name__tool_name"
     if "__" not in name:
         return [types.TextContent(type="text", text=json.dumps({"error": "Invalid tool name format"}))]
 
-    server_name, upstream_tool_name = name.split("__", 1)
+    server_name, upstream_tool = name.split("__", 1)
 
     db = SessionLocal()
-    server = db.query(MCPServer).filter(MCPServer.name == server_name, MCPServer.is_enabled == True).first()
+    server = db.query(MCPServer).filter(
+        MCPServer.name == server_name, MCPServer.is_enabled == True).first()
     db.close()
 
     if not server:
-        return [
-            types.TextContent(type="text", text=json.dumps({"error": f"Server {server_name} not found or disabled"}))]
+        return [types.TextContent(type="text", text=json.dumps(
+            {"error": f"Server {server_name} not found or disabled"}))]
 
     headers = {}
     if server.auth_header_name and server.auth_token_hash:
         headers[server.auth_header_name] = server.auth_token_hash
 
-    start_time = time.time()
+    start = time.time()
     try:
-        # STRICT TIMEOUT: A dead upstream cannot block the gateway
-        async with asyncio.timeout(10.0):
+        async with asyncio.timeout(10.0):   # dead/slow upstream cannot hang the gateway
             async with streamablehttp_client(server.url, headers=headers) as (read, write, _):
                 async with ClientSession(read, write) as session:
                     await session.initialize()
-                    result = await session.call_tool(upstream_tool_name, arguments)
+                    result = await session.call_tool(upstream_tool, arguments)
 
-        duration = int((time.time() - start_time) * 1000)
-        log_audit("system", server_name, upstream_tool_name, duration, True)
+        duration = int((time.time() - start) * 1000)
+        log_audit("system", server_name, upstream_tool, duration, True)
         return result.content
 
     except asyncio.TimeoutError:
-        duration = int((time.time() - start_time) * 1000)
-        log_audit("system", server_name, upstream_tool_name, duration, False, "Timeout")
+        duration = int((time.time() - start) * 1000)
+        log_audit("system", server_name, upstream_tool, duration, False, "Timeout")
         return [types.TextContent(type="text", text=json.dumps({"error": "Upstream server timed out"}))]
     except Exception as e:
-        duration = int((time.time() - start_time) * 1000)
-        log_audit("system", server_name, upstream_tool_name, duration, False, str(e))
+        duration = int((time.time() - start) * 1000)
+        log_audit("system", server_name, upstream_tool, duration, False, str(e))
         return [types.TextContent(type="text", text=json.dumps({"error": str(e)}))]
 
 
-async def main():
-    # Initialize the Streamable HTTP server wrapper
-    http_server = StreamableHTTPServer(app)
+# ---------- HTTP wiring (the part that was wrong before) ----------
+session_manager = StreamableHTTPSessionManager(app=app)
 
-    # Run via uvicorn
-    config = uvicorn.Config(
-        http_server.app,
-        host="0.0.0.0",
-        port=8001,
-        log_level="info"
-    )
-    server = uvicorn.Server(config)
-    await server.serve()
 
+@contextlib.asynccontextmanager
+async def lifespan(starlette_app: Starlette):
+    async with session_manager.run():
+        yield
+
+
+starlette_app = Starlette(
+    routes=[Mount("/mcp", app=session_manager.handle_request)],
+    lifespan=lifespan,
+)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    uvicorn.run(starlette_app, host="0.0.0.0", port=8001)
