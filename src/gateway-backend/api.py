@@ -4,11 +4,19 @@ from sqlalchemy.orm import Session
 from passlib.context import CryptContext
 import secrets
 from typing import Optional
+from fastapi.middleware.cors import CORSMiddleware
+
 
 from database import get_db, SessionLocal
 from models import User, MCPServer, AuditLog
 
 app = FastAPI(title="Urumi Gateway API")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],        # local dev; in values-prod we'd whitelist the dashboard origin
+    allow_methods=["*"],
+    allow_headers=["*"],        # lets the Authorization: Bearer header through
+)
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
