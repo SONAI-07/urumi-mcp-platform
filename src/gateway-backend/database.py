@@ -4,7 +4,7 @@ import os
 
 # In production, this URL will come from Helm values (e.g., postgresql://...)
 # For local dev, we just use a local SQLite file.
-DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///./gateway.db")
+DATABASE_URL = os.environ.get("DATABASE_URL","sqlite:///./gateway.db")
 
 engine = create_engine(
     DATABASE_URL,

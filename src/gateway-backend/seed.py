@@ -29,12 +29,18 @@ def seed():
     # 2. Register the WooCommerce MCP Server
     # (Since it's inside the cluster, the URL is the internal K8s service name!)
     if not db.query(MCPServer).filter(MCPServer.name == "woo-mcp").first():
-        woo_server = MCPServer(
-            name="woo-mcp",
-            url="http://woo-mcp-server:80/mcp",  # Internal K8s DNS name
-            is_enabled=True
-        )
-        db.add(woo_server)
+        # 2. Register the WooCommerce MCP Server
+        woo_server = db.query(MCPServer).filter(MCPServer.name == "woo-mcp").first()
+        if not woo_server:
+            woo_server = MCPServer(
+                name="woo-mcp",
+                url="http://woo-mcp-server:80/mcp",  # Internal K8s DNS name!
+                is_enabled=True
+            )
+            db.add(woo_server)
+        else:
+            # Force update the URL in case it was previously seeded with a localhost URL
+            woo_server.url = "http://woo-mcp-server:80/mcp"
 
     db.commit()
     db.close()
