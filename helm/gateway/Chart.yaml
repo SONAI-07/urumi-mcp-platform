@@ -1,0 +1,4 @@
+apiVersion: v2
+name: gateway
+description: Urumi Gateway Backend and MCP Switchboard
+version: 0.1.0
