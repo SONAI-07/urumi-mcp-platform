@@ -5,6 +5,7 @@ from passlib.context import CryptContext
 import secrets
 from typing import Optional
 from fastapi.middleware.cors import CORSMiddleware
+from agent import run_agent
 
 
 from database import get_db, SessionLocal
@@ -26,6 +27,15 @@ def get_current_user(authorization: str = Header(None), db: Session = Depends(ge
         raise HTTPException(status_code=401, detail="Missing API Key")
 
     raw_key = authorization.split(" ")[1]
+
+    class ChatRequest(BaseModel):
+        message: str
+        history: list = []
+
+    @app.post("/agent/chat")
+    async def agent_chat(req: ChatRequest, user: User = Depends(get_current_user)):
+        return await run_agent(req.message, req.history)
+
     # Since we only store hashes, we must check against all active users
     users = db.query(User).filter(User.is_active == True).all()
     for user in users:
