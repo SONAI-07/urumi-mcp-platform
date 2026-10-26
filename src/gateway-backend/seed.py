@@ -1,51 +1,54 @@
-from database import engine, SessionLocal, Base
-from models import User, MCPServer
-from passlib.context import CryptContext
 import secrets
+from passlib.context import CryptContext
+from database import SessionLocal
+from models import User, MCPServer
+import os
 
-# Setup password/key hashing context
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-
 def seed():
-    print("Creating database tables...")
-    Base.metadata.create_all(bind=engine)
-
     db = SessionLocal()
-
-    # 1. Create Admin User
-    if not db.query(User).filter(User.username == "admin").first():
-        raw_api_key = secrets.token_hex(32)  # Generate a secure random API key
-        print(f"\n🔑 ADMIN API KEY (Save this! You will need it for testing): {raw_api_key}")
-
-        admin_user = User(
-            username="admin",
-            role="admin",
-            api_key_hash=pwd_context.hash(raw_api_key),
-            is_active=True
-        )
-        db.add(admin_user)
-
-    # 2. Register the WooCommerce MCP Server
-    # (Since it's inside the cluster, the URL is the internal K8s service name!)
-    if not db.query(MCPServer).filter(MCPServer.name == "woo-mcp").first():
-        # 2. Register the WooCommerce MCP Server
-        woo_server = db.query(MCPServer).filter(MCPServer.name == "woo-mcp").first()
-        if not woo_server:
-            woo_server = MCPServer(
-                name="woo-mcp",
-                url="http://woo-mcp-server:80/mcp",  # Internal K8s DNS name!
-                is_enabled=True
+    try:
+        # 1. Admin User
+        admin = db.query(User).filter(User.username == "admin").first()
+        if not admin:
+            raw_api_key = secrets.token_hex(32)
+            admin = User(
+                username="admin",
+                api_key_hash=pwd_context.hash(raw_api_key),
+                is_active=True,
+                role="admin"
             )
+            db.add(admin)
+            db.commit()
+            print(f"\n🔑 ADMIN API KEY (Save this! You will need it for testing): {raw_api_key}\n")
+
+        # 2. Member User (User B)
+        member = db.query(User).filter(User.username == "member").first()
+        if not member:
+            member_key = secrets.token_hex(32)
+            member = User(
+                username="member",
+                api_key_hash=pwd_context.hash(member_key),
+                is_active=True,
+                role="member"
+            )
+            db.add(member)
+            db.commit()
+            print(f"\n🔑 MEMBER API KEY (User B - Save this!): {member_key}\n")
+
+        # 3. Register MCP Server
+        woo_server = db.query(MCPServer).filter(MCPServer.name == "woo-mcp").first()
+        woo_url = os.environ.get("UPSTREAM_WOO_URL", "http://woo-mcp-server:80/mcp")
+        if not woo_server:
+            woo_server = MCPServer(name="woo-mcp", url=woo_url, is_enabled=True)
             db.add(woo_server)
         else:
-            # Force update the URL in case it was previously seeded with a localhost URL
-            woo_server.url = "http://woo-mcp-server:80/mcp"
-
-    db.commit()
-    db.close()
-    print("✅ Database seeded successfully!")
-
+            woo_server.url = woo_url
+        db.commit()
+        print("✅ Database seeded successfully.")
+    finally:
+        db.close()
 
 if __name__ == "__main__":
     seed()

@@ -3,10 +3,13 @@ import contextlib
 import json
 import time
 import logging
+import contextvars
 
 import uvicorn
 from starlette.applications import Starlette
 from starlette.routing import Mount
+from starlette.responses import JSONResponse
+from auth import authenticate_raw_key
 
 from mcp.server import Server
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
@@ -22,6 +25,25 @@ logging.basicConfig(level=logging.INFO)
 # Low-level server: we need raw control over list_tools/call_tool
 # because the gateway's tool list is DYNAMIC (comes from the DB).
 app = Server("Urumi-Gateway")
+current_user = contextvars.ContextVar("current_user", default="anonymous")
+
+class MCPAuthMiddleware:
+    """Every MCP client must present a valid gateway API key (Bearer)."""
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http" and scope["path"].startswith("/mcp"):
+            headers = dict(scope["headers"])
+            auth = headers.get(b"authorization", b"").decode()
+            raw = auth.split(" ")[1] if auth.startswith("Bearer ") else ""
+            username = authenticate_raw_key(raw)
+            if username is None:
+                await JSONResponse({"detail": "Invalid or missing gateway API key"},
+                                     status_code=401)(scope, receive, send)
+                return
+            current_user.set(username)   # session tasks inherit this contextvar
+        await self.app(scope, receive, send)
 
 
 def log_audit(username, server_name, tool_name, duration_ms, success, error_msg=None):
@@ -130,4 +152,4 @@ starlette_app = Starlette(
 )
 
 if __name__ == "__main__":
-    uvicorn.run(starlette_app, host="0.0.0.0", port=8001)
+    uvicorn.run(MCPAuthMiddleware(starlette_app), host="0.0.0.0", port=8001)

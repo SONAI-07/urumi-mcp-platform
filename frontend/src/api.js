@@ -2,7 +2,7 @@ import axios from 'axios';
 
 // When developing locally, we port-forward the Gateway API to localhost:8000
 const api = axios.create({
-  baseURL: 'http://localhost:8000',
+  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8000',
 });
 
 api.interceptors.request.use((config) => {

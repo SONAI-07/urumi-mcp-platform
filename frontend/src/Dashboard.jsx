@@ -39,6 +39,9 @@ export default function Dashboard() {
       <div className="flex justify-between items-center mb-8">
         <h1 className="text-3xl font-bold flex items-center gap-2"><Server /> Urumi Gateway Control</h1>
         <button onClick={handleLogout} className="text-slate-400 hover:text-red-400 flex items-center gap-1"><LogOut size={18}/> Logout</button>
+        <button onClick={() => navigate('/chat')} className="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded flex items-center gap-1">
+  <Activity size={18}/> Open Chat Agent
+         </button>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">

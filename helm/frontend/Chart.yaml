@@ -1,0 +1,4 @@
+apiVersion: v2
+name: frontend
+description: Urumi React dashboard and chat agent UI
+version: 0.1.0

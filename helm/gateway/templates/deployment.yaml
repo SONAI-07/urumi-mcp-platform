@@ -1,0 +1,59 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: gateway
+  template:
+    metadata:
+      labels:
+        app: gateway
+    spec:
+      # INIT CONTAINER: Seeds the database before the main servers start!
+      initContainers:
+        - name: seed-db
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["python", "seed.py"]
+          env:
+            - name: DATABASE_URL
+              value: "sqlite:////data/gateway.db"
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      containers:
+        - name: gateway
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: api
+              containerPort: 8000
+            - name: mcp
+              containerPort: 8001
+          env:
+            - name: DATABASE_URL
+              value: "sqlite:////data/gateway.db"
+            - name: SARVAM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: sarvam-credentials
+                  key: api_key
+            - name: SARVAM_MODEL
+              value: "{{ .Values.sarvamModel }}"
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          readinessProbe:
+            tcpSocket:
+              port: 8001
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: gateway-data

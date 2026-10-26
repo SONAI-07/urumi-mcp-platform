@@ -1,0 +1,9 @@
+replicaCount: 1
+image:
+  repository: frontend
+  tag: latest
+  pullPolicy: Never
+host: dashboard.127.0.0.1.nip.io
+resources:
+  requests: { memory: "64Mi", cpu: "50m" }
+  limits:   { memory: "128Mi", cpu: "200m" }

@@ -10,7 +10,7 @@ log = logging.getLogger("agent")
 
 SARVAM_KEY = os.environ.get("SARVAM_API_KEY", "")
 SARVAM_URL = "https://api.sarvam.ai/v1/chat/completions"
-MODEL = os.environ.get("SARVAM_MODEL", "sarvam-m")
+MODEL = os.environ.get("SARVAM_MODEL", "sarvam-105b")
 GATEWAY_MCP_URL = os.environ.get("GATEWAY_MCP_URL", "http://127.0.0.1:8001/mcp")
 MAX_STEPS = 6
 
@@ -21,35 +21,57 @@ SYSTEM_PROMPT = (
     "friendly language."
 )
 
+
 def _to_openai_tools(mcp_tools):
-    return [{
-        "type": "function",
-        "function": {
-            "name": t.name,
-            "description": t.description or t.name,
-            "parameters": t.inputSchema or {"type": "object", "properties": {}},
-        },
-    } for t in mcp_tools]
+    tools = []
+    for t in mcp_tools:
+        schema = t.inputSchema.copy() if t.inputSchema else {}
+        if "type" not in schema:
+            schema["type"] = "object"
+        if "properties" not in schema:
+            schema["properties"] = {}
+        tools.append({
+            "type": "function",
+            "function": {
+                "name": t.name,
+                "description": t.description or t.name,
+                "parameters": schema,
+            },
+        })
+    return tools
+
 
 async def _llm(messages, tools):
     headers = {"Authorization": f"Bearer {SARVAM_KEY}", "Content-Type": "application/json"}
-    payload = {"model": MODEL, "messages": messages, "temperature": 0.2}
+    payload = {
+        "model": MODEL,
+        "messages": messages,
+        "temperature": 0.2,
+        "max_tokens": 1024
+    }
     if tools:
         payload["tools"] = tools
         payload["tool_choice"] = "auto"
+
     async with httpx.AsyncClient(timeout=60) as client:
         r = await client.post(SARVAM_URL, headers=headers, json=payload)
-        r.raise_for_status()
+        if r.status_code != 200:
+            raise ValueError(f"Sarvam API Error {r.status_code}: {r.text}")
+
         return r.json()["choices"][0]["message"]
 
-async def run_agent(user_message: str, history: list):
+
+async def run_agent(user_message: str, history: list, raw_key: str):
     if not SARVAM_KEY:
         return {"reply": "Agent misconfigured: SARVAM_API_KEY is missing.", "history": history}
 
     messages = [{"role": "system", "content": SYSTEM_PROMPT}] + history + \
                [{"role": "user", "content": user_message}]
 
-    async with streamablehttp_client(GATEWAY_MCP_URL) as (read, write, _):
+    # Forward the user's key to the gateway's MCP endpoint so the agent acts as them!
+    mcp_headers = {"Authorization": f"Bearer {raw_key}"} if raw_key else {}
+
+    async with streamablehttp_client(GATEWAY_MCP_URL, headers=mcp_headers) as (read, write, _):
         async with ClientSession(read, write) as session:
             await session.initialize()
             listed = await session.list_tools()
@@ -57,7 +79,7 @@ async def run_agent(user_message: str, history: list):
 
             for _ in range(MAX_STEPS):
                 msg = await _llm(messages, tools)
-                messages.append(msg)                      # assistant turn (may carry tool_calls)
+                messages.append(msg)
                 calls = msg.get("tool_calls") or []
                 if not calls:
                     reply = msg.get("content") or ""
@@ -65,7 +87,7 @@ async def run_agent(user_message: str, history: list):
                             "history": history + [
                                 {"role": "user", "content": user_message},
                                 {"role": "assistant", "content": reply}]}
-                for call in calls:                        # execute each tool via MCP
+                for call in calls:
                     fn = call["function"]
                     try:
                         args = json.loads(fn.get("arguments") or "{}")

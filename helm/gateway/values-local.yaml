@@ -1,0 +1,12 @@
+replicaCount: 1
+image:
+  repository: gateway-backend
+  tag: latest
+  pullPolicy: Never
+resources:
+  requests: { memory: "128Mi", cpu: "100m" }
+  limits: { memory: "256Mi", cpu: "250m" }
+sarvamModel: "sarvam-105b"
+
+apiHost: api.127.0.0.1.nip.io
+mcpHost: mcp.127.0.0.1.nip.io
