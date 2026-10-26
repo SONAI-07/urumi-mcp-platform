@@ -1,12 +1,15 @@
 import secrets
 from passlib.context import CryptContext
-from database import SessionLocal
+from database import SessionLocal, engine, Base  # <-- Import engine and Base!
 from models import User, MCPServer
 import os
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 def seed():
+    # CREATE TABLES IF THEY DON'T EXIST (Crucial for an empty PVC!)
+    Base.metadata.create_all(bind=engine)
+
     db = SessionLocal()
     try:
         # 1. Admin User
