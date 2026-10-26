@@ -86,6 +86,10 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+              <div className="bg-slate-800 p-6 rounded-xl border border-slate-700">
+          <h2 className="text-xl font-semibold mb-4">Team Members</h2>
+          <button onClick={() => alert('Run: curl -X POST http://api.127.0.0.1.nip.io/admin/users -H "Authorization: Bearer <ADMIN>" -d \'{"username":"bob","role":"member"}\'')} className="bg-green-600 px-3 py-1 rounded text-sm">+ Create Member (CLI)</button>
+        </div>
     </div>
   );
 }

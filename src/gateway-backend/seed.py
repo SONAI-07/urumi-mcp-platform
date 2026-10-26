@@ -52,6 +52,16 @@ def seed():
         print("✅ Database seeded successfully.")
     finally:
         db.close()
+        # 4. Two additional public upstreams (filesystem + everything-server)
 
+
+    for name, url in [
+    ("fs-mcp", os.environ.get("UPSTREAM_FS_URL", "http://fs-mcp:80/mcp")),
+    ("all-mcp", os.environ.get("UPSTREAM_ALL_URL", "http://all-mcp:80/mcp")),
+]:
+        srv = db.query(MCPServer).filter(MCPServer.name == name).first()
+        if not srv:
+         db.add(MCPServer(name=name, url=url, is_enabled=True))
+    db.commit()
 if __name__ == "__main__":
     seed()
