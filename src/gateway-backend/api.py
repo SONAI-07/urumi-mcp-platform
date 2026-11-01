@@ -8,20 +8,58 @@ import urllib.parse
 from fastapi import HTTPException
 
 from database import get_db
+import time
+from collections import defaultdict
+from starlette.responses import JSONResponse
 from models import User, MCPServer, AuditLog
 from agent import run_agent
 
+# In-memory sliding window (per-pod).
+# In a massive production setup, swap this dict for Redis.
+request_counts = defaultdict(list)
+
+class RateLimitMiddleware:
+    def __init__(self, app, max_requests=30, window_seconds=60):
+        self.app = app
+        self.max_requests = max_requests
+        self.window = window_seconds
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            headers = dict(scope["headers"])
+            auth = headers.get(b"authorization", b"").decode()
+            # Rate limit by API key if present, otherwise by IP
+            key = auth if auth else (scope["client"][0] if scope.get("client") else "unknown")
+
+            now = time.time()
+            # Clean old entries outside the window
+            request_counts[key] = [t for t in request_counts[key] if now - t < self.window]
+
+            if len(request_counts[key]) >= self.max_requests:
+                response = JSONResponse(
+                    {"detail": "Rate limit exceeded. Try again later."},
+                    status_code=429
+                )
+                await response(scope, receive, send)
+                return
+
+            request_counts[key].append(now)
+
+        await self.app(scope, receive, send)
 app = FastAPI(title="Urumi Gateway API")
 
 # type: ignore is required because PyCharm's type checker doesn't understand FastAPI's dynamic middleware signature
 app.add_middleware(  # type: ignore
+
     CORSMiddleware,
     allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(RateLimitMiddleware)
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
 
 
 def validate_upstream_url(url: str):
