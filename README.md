@@ -373,6 +373,37 @@ urumi-mcp-platform/
 ```
 
 ---
+---
+
+## 🌟 Stand-Out Features Implemented
+
+In addition to the core requirements, this project implements three advanced production-grade features from the "Other ways to stand out" section of the assignment: **Security Hardening**, **Scaling**, and **Upgrades & Rollback**.
+
+### 1. Security Hardening (SSRF Protection & Network Isolation)
+*Addresses: Option 6 - Security hardening*
+
+* **What it is:** When an admin registers a new upstream MCP server URL via the dashboard, the gateway actively validates the URL to prevent Server-Side Request Forgery (SSRF). It explicitly blocks requests to `localhost`, loopback addresses, and cloud metadata endpoints (e.g., AWS `169.254.169.254`). Furthermore, a strict Kubernetes `NetworkPolicy` is applied to the WooCommerce MCP server, ensuring that *only* the gateway pod is whitelisted to communicate with the store's data plane.
+* **Why it matters:** Prevents a compromised admin account or malicious client from using the gateway as a proxy to scan internal cluster networks, attack other pods, or steal cloud provider IAM credentials.
+* **Where to find it:** 
+  * SSRF validation logic: `src/gateway-backend/api.py` (see the `validate_upstream_url` helper function).
+  * Network isolation: `helm/woo-mcp-server/templates/networkpolicy.yaml`.
+
+### 2. High Availability & Scaling (Multi-Replica Gateway + Rate Limiting)
+*Addresses: Option 7 - Scaling*
+
+* **What it is:** The gateway control plane is configured to run multiple replicas (`replicaCount: 2`) for high availability. To solve the SQLite write-locking issues inherent in multi-pod deployments, the database engine was migrated to **PostgreSQL**, allowing concurrent audit log writes. To protect upstreams from abuse, an in-memory sliding-window **Rate Limiter** was added to both the REST API and MCP endpoints. Finally, Kubernetes `sessionAffinity: ClientIP` is configured on the Gateway Service to ensure that stateful Streamable HTTP MCP sessions remain sticky to a single pod.
+* **Why it matters:** Proves the platform can handle production traffic loads without database corruption or session drops, while defending upstream servers against DDoS or runaway agent loops.
+* **Where to find it:** 
+  * Postgres migration: `src/gateway-backend/database.py`.
+  * Rate limiting middleware: `src/gateway-backend/api.py` and `src/gateway-backend/gateway_server.py` (see `RateLimitMiddleware`).
+  * Scaling config: `helm/gateway/values-local.yaml` (`replicaCount`) and `helm/gateway/templates/service.yaml` (`sessionAffinity`).
+
+### 3. Zero-Downtime Upgrades and Rollbacks via Helm
+*Addresses: Option 9 - Upgrades and rollback*
+
+* **What it is:** The platform leverages Helm's native revision history to allow instant, safe rollbacks of bad deployments. If a new gateway image contains a bug or crashes on startup, the platform operator can instantly revert to the previous stable state without manual pod management.
+* **Why it matters:** In a production environment, a bad CI/CD push shouldn't cause an outage. Helm ensures operational maturity and rapid recovery.
+* **Where to find it:** Demonstrated live in the submission video. The rollback mechanism is natively supported via: `helm rollback gateway <revision-number> -n store`.
 
 ## 📄 License
 
