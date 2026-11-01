@@ -4,12 +4,16 @@ metadata:
   name: gateway
 spec:
   type: ClusterIP
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 3600
   selector:
     app: gateway
   ports:
-    - name: api
+    - name: http-rest
       port: 80
       targetPort: 8000
-    - name: mcp
+    - name: http-mcp
       port: 8001
       targetPort: 8001
