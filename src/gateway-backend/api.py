@@ -4,6 +4,8 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from passlib.context import CryptContext
 import secrets
+import urllib.parse
+from fastapi import HTTPException
 
 from database import get_db
 from models import User, MCPServer, AuditLog
@@ -20,6 +22,22 @@ app.add_middleware(  # type: ignore
 )
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+
+def validate_upstream_url(url: str):
+    """Prevent Server-Side Request Forgery (SSRF) when admins register upstreams."""
+    try:
+        parsed = urllib.parse.urlparse(url)
+        if parsed.scheme not in ('http', 'https'):
+            raise HTTPException(400, "Only http/https URLs are allowed")
+
+        # Block localhost, loopback, and cloud metadata endpoints
+        blocked_hosts = ['localhost', '127.0.0.1', '::1', '169.254.169.254', 'metadata.google.internal']
+        if parsed.hostname in blocked_hosts:
+            raise HTTPException(400, "SSRF protection: Localhost and cloud metadata endpoints are blocked")
+    except Exception as e:
+        if isinstance(e, HTTPException): raise e
+        raise HTTPException(400, "Invalid URL format")
 
 # --- AUTH HELPER ---
 def get_current_user(authorization: str = Header(None), db: Session = Depends(get_db)) -> User:
